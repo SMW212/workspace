@@ -1,0 +1,30 @@
+DATA_BLOCK "DB_HMI_Tank"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+VAR
+    // HMI commands
+    Mode : Int := 0;
+    StartAuto : Bool := FALSE;
+    Stop : Bool := FALSE;
+    ManualFill : Bool := FALSE;
+    ManualDrain : Bool := FALSE;
+    ResetFault : Bool := FALSE;
+
+    // HMI parameters
+    SetpointPct : Real := 60.0;
+    HysteresisPct : Real := 3.0;
+    LowLowPct : Real := 5.0;
+    HighHighPct : Real := 95.0;
+
+    // PLC/HMI status
+    LevelPct : Real := 20.0;
+    FillValveCmd : Bool := FALSE;
+    DrainValveCmd : Bool := FALSE;
+    AutoActive : Bool := FALSE;
+    Fault : Bool := FALSE;
+    AlarmLowLow : Bool := FALSE;
+    AlarmHighHigh : Bool := FALSE;
+    StatusText : String[80] := 'Aus';
+END_VAR
+BEGIN
+END_DATA_BLOCK

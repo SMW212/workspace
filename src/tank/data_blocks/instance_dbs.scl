@@ -1,0 +1,11 @@
+DATA_BLOCK "FB_TankControl_DB" "FB_TankControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+BEGIN
+END_DATA_BLOCK
+
+DATA_BLOCK "FB_TankSim_DB" "FB_TankSim"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+BEGIN
+END_DATA_BLOCK

@@ -1,0 +1,17 @@
+Name,Connection,PLC tag,Data type,Acquisition cycle,Comment
+Tank_LevelPct,PLC_1,"DB_HMI_Tank".LevelPct,Real,1s,Fuellstand in Prozent
+Tank_SetpointPct,PLC_1,"DB_HMI_Tank".SetpointPct,Real,1s,Sollwert in Prozent
+Tank_HysteresisPct,PLC_1,"DB_HMI_Tank".HysteresisPct,Real,1s,Hysterese in Prozent
+Tank_Mode,PLC_1,"DB_HMI_Tank".Mode,Int,1s,0 Aus 1 Hand 2 Automatik
+Tank_StartAuto,PLC_1,"DB_HMI_Tank".StartAuto,Bool,250ms,Automatik starten
+Tank_Stop,PLC_1,"DB_HMI_Tank".Stop,Bool,250ms,Stop
+Tank_ManualFill,PLC_1,"DB_HMI_Tank".ManualFill,Bool,250ms,Hand Fuellen
+Tank_ManualDrain,PLC_1,"DB_HMI_Tank".ManualDrain,Bool,250ms,Hand Entleeren
+Tank_ResetFault,PLC_1,"DB_HMI_Tank".ResetFault,Bool,250ms,Stoerung quittieren
+Tank_FillValveCmd,PLC_1,"DB_HMI_Tank".FillValveCmd,Bool,250ms,Fuellventil Befehl
+Tank_DrainValveCmd,PLC_1,"DB_HMI_Tank".DrainValveCmd,Bool,250ms,Ablaufventil Befehl
+Tank_AutoActive,PLC_1,"DB_HMI_Tank".AutoActive,Bool,250ms,Automatik aktiv
+Tank_Fault,PLC_1,"DB_HMI_Tank".Fault,Bool,250ms,Sammelstoerung
+Tank_AlarmLowLow,PLC_1,"DB_HMI_Tank".AlarmLowLow,Bool,250ms,Minimumalarm
+Tank_AlarmHighHigh,PLC_1,"DB_HMI_Tank".AlarmHighHigh,Bool,250ms,Maximumalarm
+Tank_StatusText,PLC_1,"DB_HMI_Tank".StatusText,String,1s,Statustext

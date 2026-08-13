@@ -1,0 +1,164 @@
+DATA_BLOCK "RecipeDB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    // Recipe identification
+    iRecipeID           : INT := 1;
+    sRecipeName         : STRING[50] := 'Standard Recipe';
+    tCreationTime       : TIME_OF_DAY;
+    tLastModified       : TIME_OF_DAY;
+    
+    // Process parameters
+    bMotorEnabled       : BOOL := TRUE;
+    iTargetSpeed        : INT := 1000;  // RPM
+    iTargetTemperature  : INT := 85;    // Celsius
+    rTargetPressure     : REAL := 5.5;  // Bar
+    
+    // Timing
+    tProcessDuration    : TIME := T#5m;
+    tCycleTime          : TIME := T#100ms;
+    
+    // Recipe steps
+    aStepCount          : INT := 3;
+    aSteps              : ARRAY[0..9] OF "RecipeStep";
+    
+    // Input/Output data
+    sensorInputs        : "SensorInputDB";
+    measurementData     : "ProcessedDataDB";
+    outputData          : "OutputDB";
+    
+    // Limits and thresholds
+    iTemperatureTolerance : INT := 5;
+    rPressureTolerance    : REAL := 0.3;
+    bEnableSafetyChecks   : BOOL := TRUE;
+END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+// Type definitions for recipe structure
+TYPE "RecipeStep"
+STRUCT
+    iStepNumber     : INT;
+    sStepName       : STRING[30];
+    tDuration       : TIME;
+    iParameter1     : INT;
+    iParameter2     : INT;
+    bEnabled        : BOOL;
+END_STRUCT
+END_TYPE
+
+DATA_BLOCK "SystemConfigDB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    // System identification
+    sSoftwareVersion   : STRING[20] := 'v1.2.0';
+    sBuildDate         : STRING[10] := '2025-12-09';
+    iSystemID          : INT := 1;
+    
+    // Configuration
+    bDebugMode         : BOOL := FALSE;
+    bEnableLogging     : BOOL := TRUE;
+    iLogLevel          : BYTE := 2;  // 0=Error, 1=Warn, 2=Info, 3=Debug
+    
+    // Communication settings
+    sIPAddress         : STRING[15] := '192.168.1.100';
+    iPortNumber        : INT := 502;
+    iModbusSlaveID     : BYTE := 1;
+    
+    // System health
+    iLastError         : INT := 0;
+    sLastErrorMsg      : STRING[100];
+    iErrorCount        : INT := 0;
+    tLastStatusReport  : TIME_OF_DAY;
+    
+    // Sensor inputs
+    sensorInputs       : "SensorInputDB";
+    
+    // Device limits
+    iMaxMotorSpeed     : INT := 3000;
+    iMaxTemp           : INT := 120;
+    rMaxPressure       : REAL := 10.0;
+    iCycleTimeMS       : INT := 100;
+END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+// Supporting data blocks
+DATA_BLOCK "SensorInputDB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    iTemperature    : INT;      // Celsius * 10
+    rPressure       : REAL;     // Bar
+    bMotorRunning   : BOOL;
+    iMotorCurrent   : INT;      // Milliamps
+    iMotorLoad      : BYTE;     // Percentage
+    bEmergencyStop  : BOOL;
+    iInputWord      : WORD;     // Raw digital inputs
+END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "ProcessedDataDB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    iTemperatureFiltered : INT;
+    rPressureFiltered    : REAL;
+    bValid               : BOOL;
+    bSensorFault         : BOOL;
+    iQualityScore        : INT;
+    timestamp            : TIME_OF_DAY;
+END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "MotorStatusDB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    bInitialized     : BOOL := FALSE;
+    eState           : MotorStateEnum;
+    iSpeed           : INT;
+    iErrorCount      : INT;
+    bRunning         : BOOL;
+    bCriticalError   : BOOL;
+END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "OutputDB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    iMotorCommand    : INT;
+    bMotorEnable     : BOOL;
+    bHeaterEnable    : BOOL;
+    iValvePosition   : BYTE;
+    iOutputWord      : WORD;
+    iOutputDWord     : DWORD;
+END_VAR
+
+BEGIN
+
+END_DATA_BLOCK
+
+// Enumerations
+TYPE "MotorStateEnum" : INT
+  IDLE := 0;
+  STARTING := 1;
+  RUNNING := 2;
+  STOPPING := 3;
+  ERROR := 4;
+END_TYPE

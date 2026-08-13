@@ -1,0 +1,95 @@
+FUNCTION_BLOCK "FB_TankControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+VAR_INPUT
+    LevelPct : Real;
+    Mode : Int;
+    StartAuto : Bool;
+    Stop : Bool;
+    ManualFill : Bool;
+    ManualDrain : Bool;
+    ResetFault : Bool;
+    SetpointPct : Real;
+    HysteresisPct : Real;
+    LowLowPct : Real;
+    HighHighPct : Real;
+END_VAR
+VAR_OUTPUT
+    FillValveCmd : Bool;
+    DrainValveCmd : Bool;
+    AutoActive : Bool;
+    Fault : Bool;
+    AlarmLowLow : Bool;
+    AlarmHighHigh : Bool;
+    StatusText : String[80];
+END_VAR
+VAR
+    FillLatch : Bool;
+    SetpointLimited : Real;
+    HysteresisLimited : Real;
+END_VAR
+BEGIN
+    // Plausible Bedienwerte begrenzen.
+    SetpointLimited := LIMIT(MN := 1.0, IN := SetpointPct, MX := 99.0);
+    HysteresisLimited := LIMIT(MN := 0.5, IN := HysteresisPct, MX := 20.0);
+
+    AlarmLowLow := LevelPct <= LowLowPct;
+    AlarmHighHigh := LevelPct >= HighHighPct;
+
+    IF AlarmHighHigh THEN
+        Fault := TRUE;
+    END_IF;
+
+    IF ResetFault AND NOT AlarmHighHigh THEN
+        Fault := FALSE;
+    END_IF;
+
+    IF Stop OR Fault OR (Mode = 0) THEN
+        AutoActive := FALSE;
+        FillLatch := FALSE;
+    ELSIF (Mode = 2) AND StartAuto THEN
+        AutoActive := TRUE;
+    END_IF;
+
+    FillValveCmd := FALSE;
+    DrainValveCmd := FALSE;
+
+    CASE Mode OF
+        0:
+            StatusText := 'Aus';
+
+        1:
+            AutoActive := FALSE;
+            FillLatch := FALSE;
+            FillValveCmd := ManualFill AND NOT Fault AND NOT AlarmHighHigh;
+            DrainValveCmd := ManualDrain AND NOT ManualFill;
+
+            IF Fault THEN
+                StatusText := 'Stoerung';
+            ELSE
+                StatusText := 'Handbetrieb';
+            END_IF;
+
+        2:
+            IF AutoActive AND NOT Fault THEN
+                IF LevelPct <= (SetpointLimited - HysteresisLimited) THEN
+                    FillLatch := TRUE;
+                ELSIF LevelPct >= (SetpointLimited + HysteresisLimited) THEN
+                    FillLatch := FALSE;
+                END_IF;
+
+                FillValveCmd := FillLatch AND NOT AlarmHighHigh;
+                DrainValveCmd := FALSE;
+                StatusText := 'Automatik aktiv';
+            ELSIF Fault THEN
+                StatusText := 'Stoerung';
+            ELSE
+                StatusText := 'Automatik bereit';
+            END_IF;
+
+        ELSE
+            AutoActive := FALSE;
+            FillLatch := FALSE;
+            StatusText := 'Ungueltige Betriebsart';
+    END_CASE;
+END_FUNCTION_BLOCK

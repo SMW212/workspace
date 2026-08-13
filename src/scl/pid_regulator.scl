@@ -1,0 +1,255 @@
+FUNCTION_BLOCK FB_PIDRegulator
+{ S7_Optimized_Access := 'TRUE' }
+VAR_INPUT
+    // Process variables
+    Setpoint          : REAL;        // Desired setpoint value
+    ProcessValue      : REAL;        // Current measured process value
+    
+    // PID parameters
+    Kp                : REAL := 1.0;     // Proportional gain
+    Ti                : REAL := 10.0;    // Integral time constant (seconds)
+    Td                : REAL := 0.0;     // Derivative time constant (seconds)
+    
+    // Output limits
+    OutputMin         : REAL := 0.0;     // Minimum output value
+    OutputMax         : REAL := 100.0;   // Maximum output value
+    
+    // Control mode
+    Enable            : BOOL := TRUE;    // Enable PID controller
+    ManualMode        : BOOL := FALSE;   // Manual mode (use ManualOutput)
+    ManualOutput      : REAL := 0.0;     // Manual output value (0-100%)
+    
+    // Cycle time (if not provided, will be calculated)
+    CycleTime         : REAL := 0.0;     // Cycle time in seconds (0 = auto-calculate)
+    
+    // Anti-windup
+    AntiWindupEnable  : BOOL := TRUE;    // Enable anti-windup protection
+    
+    // Derivative filter
+    DerivativeFilter  : REAL := 0.1;     // Derivative filter time constant (seconds)
+    
+    // Setpoint change rate limiting
+    SetpointRateLimit : REAL := 0.0;     // Maximum setpoint change rate (units/sec, 0 = disabled)
+END_VAR
+
+VAR_OUTPUT
+    Output            : REAL;        // PID controller output (0-100%)
+    Error             : REAL;        // Current control error (Setpoint - ProcessValue)
+    P_Term            : REAL;        // Proportional term contribution
+    I_Term            : REAL;        // Integral term contribution
+    D_Term            : REAL;        // Derivative term contribution
+    Status            : WORD;        // Status word (bit 0: Active, bit 1: Saturated)
+END_VAR
+
+VAR
+    // Internal state variables
+    Integral          : REAL;        // Integral accumulator
+    LastError         : REAL;        // Previous error for derivative calculation
+    LastProcessValue  : REAL;        // Previous process value for derivative on PV
+    LastOutput        : REAL;        // Previous output for bumpless transfer
+    LastSetpoint      : REAL;        // Previous setpoint for rate limiting
+    
+    // Cycle time calculation
+    LastCycleTime     : DINT;        // Last cycle time stamp (milliseconds)
+    CalculatedCycleTime : REAL;      // Calculated cycle time in seconds
+    
+    // Derivative filter
+    DerivativeFiltered : REAL;       // Filtered derivative term
+    
+    // Internal setpoint (after rate limiting)
+    InternalSetpoint  : REAL;        // Actual setpoint used in calculation
+    
+    // Status flags
+    bFirstScan        : BOOL := TRUE;
+    bOutputSaturated  : BOOL;
+END_VAR
+
+VAR_TEMP
+    dt                : REAL;        // Cycle time in seconds
+    ErrorCalc         : REAL;        // Calculated error
+    Proportional      : REAL;        // Proportional term
+    IntegralTerm      : REAL;        // Integral term
+    DerivativeTerm    : REAL;        // Derivative term
+    DerivativeInput   : REAL;        // Input to derivative filter
+    OutputUnlimited   : REAL;        // Output before limiting
+    SetpointChange    : REAL;        // Setpoint change amount
+    CurrentTime       : DINT;        // Current time in milliseconds
+    TimeDiff          : DINT;        // Time difference in milliseconds
+END_VAR
+
+BEGIN
+    // === INITIALIZATION ===
+    IF bFirstScan THEN
+        LastCycleTime := TIME_TCK();
+        CalculatedCycleTime := 0.0;
+        Integral := 0.0;
+        LastError := 0.0;
+        LastProcessValue := ProcessValue;
+        LastOutput := ManualOutput;
+        LastSetpoint := Setpoint;
+        InternalSetpoint := Setpoint;
+        DerivativeFiltered := 0.0;
+        bFirstScan := FALSE;
+        Status := 0;
+    END_IF;
+    
+    // === CYCLE TIME CALCULATION ===
+    IF CycleTime > 0.0 THEN
+        dt := CycleTime;
+    ELSE
+        // Auto-calculate cycle time
+        CurrentTime := TIME_TCK();
+        TimeDiff := CurrentTime - LastCycleTime;
+        // Convert milliseconds to seconds (DINT to REAL conversion)
+        CalculatedCycleTime := REAL(TimeDiff) / 1000.0;
+        IF CalculatedCycleTime > 0.0 AND CalculatedCycleTime < 10.0 THEN
+            dt := CalculatedCycleTime;
+        ELSE
+            dt := 0.1; // Default to 100ms if calculation fails
+        END_IF;
+        LastCycleTime := CurrentTime;
+    END_IF;
+    
+    // === SETPOINT RATE LIMITING ===
+    IF SetpointRateLimit > 0.0 THEN
+        SetpointChange := Setpoint - LastSetpoint;
+        IF ABS(SetpointChange) > (SetpointRateLimit * dt) THEN
+            IF SetpointChange > 0.0 THEN
+                InternalSetpoint := LastSetpoint + (SetpointRateLimit * dt);
+            ELSE
+                InternalSetpoint := LastSetpoint - (SetpointRateLimit * dt);
+            END_IF;
+        ELSE
+            InternalSetpoint := Setpoint;
+        END_IF;
+        LastSetpoint := InternalSetpoint;
+    ELSE
+        InternalSetpoint := Setpoint;
+        LastSetpoint := Setpoint;
+    END_IF;
+    
+    // === ERROR CALCULATION ===
+    ErrorCalc := InternalSetpoint - ProcessValue;
+    Error := ErrorCalc;
+    
+    // === MANUAL MODE ===
+    IF ManualMode OR NOT Enable THEN
+        // Bumpless transfer: initialize integral term when switching to auto
+        IF NOT ManualMode AND Enable THEN
+            // Calculate integral term to match manual output
+            IF Kp <> 0.0 THEN
+                Integral := ManualOutput - (Kp * ErrorCalc);
+                // Limit integral to prevent windup
+                IF Integral > (OutputMax - OutputMin) THEN
+                    Integral := (OutputMax - OutputMin);
+                ELSIF Integral < -(OutputMax - OutputMin) THEN
+                    Integral := -(OutputMax - OutputMin);
+                END_IF;
+            ELSE
+                Integral := 0.0;
+            END_IF;
+        END_IF;
+        
+        Output := ManualOutput;
+        P_Term := 0.0;
+        I_Term := 0.0;
+        D_Term := 0.0;
+        LastError := ErrorCalc;
+        LastProcessValue := ProcessValue;
+        LastOutput := ManualOutput;
+        Status := 0;
+        bOutputSaturated := FALSE;
+        RETURN;
+    END_IF;
+    
+    // === PROPORTIONAL TERM ===
+    Proportional := Kp * ErrorCalc;
+    P_Term := Proportional;
+    
+    // === INTEGRAL TERM ===
+    IF Ti > 0.0 AND dt > 0.0 THEN
+        IntegralTerm := (Kp / Ti) * ErrorCalc * dt;
+        Integral := Integral + IntegralTerm;
+        
+        // Anti-windup: limit integral when output is saturated
+        IF AntiWindupEnable THEN
+            OutputUnlimited := Proportional + Integral;
+            IF OutputUnlimited >= OutputMax THEN
+                IF IntegralTerm > 0.0 THEN
+                    Integral := Integral - IntegralTerm; // Prevent further integration
+                END_IF;
+                bOutputSaturated := TRUE;
+            ELSIF OutputUnlimited <= OutputMin THEN
+                IF IntegralTerm < 0.0 THEN
+                    Integral := Integral - IntegralTerm; // Prevent further integration
+                END_IF;
+                bOutputSaturated := TRUE;
+            ELSE
+                bOutputSaturated := FALSE;
+            END_IF;
+        END_IF;
+        
+        // Hard limit on integral term
+        IF Integral > (OutputMax - OutputMin) THEN
+            Integral := (OutputMax - OutputMin);
+        ELSIF Integral < -(OutputMax - OutputMin) THEN
+            Integral := -(OutputMax - OutputMin);
+        END_IF;
+    ELSE
+        IntegralTerm := 0.0;
+        Integral := 0.0;
+    END_IF;
+    I_Term := Integral;
+    
+    // === DERIVATIVE TERM ===
+    IF Td > 0.0 AND dt > 0.0 THEN
+        // Derivative on error (alternative: derivative on process value)
+        DerivativeInput := (ErrorCalc - LastError) / dt;
+        
+        // Apply derivative filter (first-order low-pass filter)
+        IF DerivativeFilter > 0.0 THEN
+            DerivativeFiltered := DerivativeFiltered + 
+                (dt / (DerivativeFilter + dt)) * (DerivativeInput - DerivativeFiltered);
+        ELSE
+            DerivativeFiltered := DerivativeInput;
+        END_IF;
+        
+        DerivativeTerm := Kp * Td * DerivativeFiltered;
+        D_Term := DerivativeTerm;
+    ELSE
+        DerivativeTerm := 0.0;
+        D_Term := 0.0;
+        DerivativeFiltered := 0.0;
+    END_IF;
+    
+    // === OUTPUT CALCULATION ===
+    OutputUnlimited := Proportional + Integral + DerivativeTerm;
+    
+    // === OUTPUT LIMITING ===
+    IF OutputUnlimited > OutputMax THEN
+        Output := OutputMax;
+        bOutputSaturated := TRUE;
+    ELSIF OutputUnlimited < OutputMin THEN
+        Output := OutputMin;
+        bOutputSaturated := TRUE;
+    ELSE
+        Output := OutputUnlimited;
+        bOutputSaturated := FALSE;
+    END_IF;
+    
+    // === UPDATE STATE VARIABLES ===
+    LastError := ErrorCalc;
+    LastProcessValue := ProcessValue;
+    LastOutput := Output;
+    
+    // === STATUS WORD ===
+    Status := 0;
+    IF Enable AND NOT ManualMode THEN
+        Status := Status OR 16#0001; // Bit 0: Active
+    END_IF;
+    IF bOutputSaturated THEN
+        Status := Status OR 16#0002; // Bit 1: Saturated
+    END_IF;
+    
+END_FUNCTION_BLOCK
+

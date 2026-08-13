@@ -1,0 +1,93 @@
+PROGRAM "Main"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    // Control signals
+    bStart           : BOOL;
+    bStop            : BOOL;
+    bSystemReady     : BOOL;
+    bErrorActive     : BOOL;
+    
+    // Cycle management
+    iCycleCounter    : INT := 0;
+    tCycleTime       : TIME := T#100ms;
+    tLastCycleTime   : TIME_OF_DAY;
+    
+    // Recipe and configuration
+    recipe           : "RecipeDB";
+    systemConfig     : "SystemConfigDB";
+    
+    // Function blocks
+    motorControl     : "MotorControlFB";
+    sensorHandler    : "SensorHandlerFB";
+    commHandler      : "CommunicationFB";
+    
+    // Temperature regulator (3-step control)
+    tempRegulator    : "ThreeStepRegulatorFB";
+END_VAR
+
+BEGIN
+    // === CYCLE INITIALIZATION ===
+    IF NOT bSystemReady THEN
+        CALL "InitializeSystem"(
+            config := systemConfig,
+            success => bSystemReady
+        );
+        RETURN;
+    END_IF;
+    
+    // === ERROR HANDLING ===
+    IF bErrorActive THEN
+        CALL "HandleError"(
+            errorCode := systemConfig.iLastError,
+            recovered => bErrorActive
+        );
+        RETURN;
+    END_IF;
+    
+    // === MAIN CONTROL LOGIC ===
+    IF bStart AND NOT bStop THEN
+        // Read sensor inputs
+        sensorHandler(
+            input_data := systemConfig.sensorInputs,
+            processed_data := recipe.measurementData
+        );
+        
+        // Temperature regulation (3-step control: heating, off, cooling)
+        tempRegulator(
+            rSetpoint := recipe.iTargetTemperature,
+            rProcessValue := recipe.measurementData.iTemperatureFiltered,
+            rHysteresisHigh := 2.0,
+            rHysteresisLow := -2.0,
+            bEnable := TRUE
+        );
+        // Use outputs: tempRegulator.bHeating, tempRegulator.bCooling, tempRegulator.bOff
+        
+        // Execute motor control based on recipe
+        motorControl(
+            recipe := recipe,
+            feedback := motorControl.fbStatus,
+            speed := motorControl.iSpeed
+        );
+        
+        // Communicate with external systems
+        commHandler(
+            send_data := recipe.outputData,
+            status => commHandler.eCommStatus
+        );
+        
+        // Update cycle counter
+        INC(iCycleCounter);
+        
+    ELSIF bStop THEN
+        // Safe shutdown sequence
+        motorControl.bStop := TRUE;
+        CALL motorControl;
+        
+        iCycleCounter := 0;
+        bStart := FALSE;
+    END_IF;
+    
+    tLastCycleTime := CURRENT_TIME;
+
+END_PROGRAM

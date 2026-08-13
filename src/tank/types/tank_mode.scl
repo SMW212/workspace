@@ -1,0 +1,7 @@
+TYPE "TankMode" :
+(
+    Off := 0,
+    Manual := 1,
+    Auto := 2
+);
+END_TYPE

@@ -1,0 +1,32 @@
+ORGANIZATION_BLOCK "Main"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+VAR_TEMP
+END_VAR
+BEGIN
+    "FB_TankControl_DB"(
+        LevelPct := "DB_HMI_Tank".LevelPct,
+        Mode := "DB_HMI_Tank".Mode,
+        StartAuto := "DB_HMI_Tank".StartAuto,
+        Stop := "DB_HMI_Tank".Stop,
+        ManualFill := "DB_HMI_Tank".ManualFill,
+        ManualDrain := "DB_HMI_Tank".ManualDrain,
+        ResetFault := "DB_HMI_Tank".ResetFault,
+        SetpointPct := "DB_HMI_Tank".SetpointPct,
+        HysteresisPct := "DB_HMI_Tank".HysteresisPct,
+        LowLowPct := "DB_HMI_Tank".LowLowPct,
+        HighHighPct := "DB_HMI_Tank".HighHighPct,
+        FillValveCmd => "DB_HMI_Tank".FillValveCmd,
+        DrainValveCmd => "DB_HMI_Tank".DrainValveCmd,
+        AutoActive => "DB_HMI_Tank".AutoActive,
+        Fault => "DB_HMI_Tank".Fault,
+        AlarmLowLow => "DB_HMI_Tank".AlarmLowLow,
+        AlarmHighHigh => "DB_HMI_Tank".AlarmHighHigh,
+        StatusText => "DB_HMI_Tank".StatusText);
+
+    "FB_TankSim_DB"(
+        Enable := TRUE,
+        FillValveCmd := "DB_HMI_Tank".FillValveCmd,
+        DrainValveCmd := "DB_HMI_Tank".DrainValveCmd,
+        LevelPct := "DB_HMI_Tank".LevelPct);
+END_ORGANIZATION_BLOCK

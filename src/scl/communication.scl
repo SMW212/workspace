@@ -1,0 +1,151 @@
+FUNCTION_BLOCK "CommunicationFB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR_INPUT
+    send_data        : "OutputDB";
+END_VAR
+
+VAR_OUTPUT
+    eCommStatus      : CommStatusEnum;
+    iLastErrorCode   : INT;
+    bConnected       : BOOL;
+    iPacketsSent     : DWORD;
+    iPacketsReceived : DWORD;
+END_VAR
+
+VAR
+    // Connection management
+    tConnectionTimer : TON;
+    tRetryTimer      : TON;
+    iRetryCount      : INT := 0;
+    iMaxRetries      : INT := 3;
+    
+    // Message buffer
+    aTxBuffer        : ARRAY[0..255] OF BYTE;
+    aRxBuffer        : ARRAY[0..255] OF BYTE;
+    iTxLength        : INT;
+    iRxLength        : INT;
+    
+    // Modbus protocol state
+    eModbusState     : ModbusStateEnum;
+    iTransactionID   : INT := 1;
+    
+    // Heartbeat monitoring
+    tHeartbeatTimer  : TON;
+    iHeartbeatCount  : INT := 0;
+END_VAR
+
+BEGIN
+    // === CONNECTION MANAGEMENT ===
+    CASE eCommStatus OF
+        
+        CommStatusEnum.DISCONNECTED:
+            tConnectionTimer(IN := TRUE, PT := T#5s);
+            IF tConnectionTimer.Q THEN
+                IF TryEstablishConnection() THEN
+                    bConnected := TRUE;
+                    eCommStatus := CommStatusEnum.CONNECTED;
+                    iRetryCount := 0;
+                ELSE
+                    INC(iRetryCount);
+                    IF iRetryCount >= iMaxRetries THEN
+                        eCommStatus := CommStatusEnum.ERROR;
+                        iLastErrorCode := 1001;  // Connection failed
+                    END_IF;
+                END_IF;
+                tConnectionTimer(IN := FALSE);
+            END_IF;
+            
+        CommStatusEnum.CONNECTED:
+            // Send data via Modbus protocol
+            IF PrepareModbusFrame(
+                transactionID := iTransactionID,
+                data := send_data,
+                buffer => aTxBuffer,
+                length => iTxLength
+            ) THEN
+                IF SendData(
+                    buffer := aTxBuffer,
+                    length := iTxLength
+                ) THEN
+                    INC(iPacketsSent);
+                    INC(iTransactionID);
+                    
+                    // Monitor heartbeat
+                    tHeartbeatTimer(IN := TRUE, PT := T#10s);
+                    IF tHeartbeatTimer.Q THEN
+                        INC(iHeartbeatCount);
+                        tHeartbeatTimer(IN := FALSE);
+                    END_IF;
+                ELSE
+                    eCommStatus := CommStatusEnum.ERROR;
+                    iLastErrorCode := 1002;  // Send failed
+                END_IF;
+            END_IF;
+            
+        CommStatusEnum.ERROR:
+            bConnected := FALSE;
+            tRetryTimer(IN := TRUE, PT := T#2s);
+            IF tRetryTimer.Q THEN
+                eCommStatus := CommStatusEnum.DISCONNECTED;
+                iRetryCount := 0;
+                tRetryTimer(IN := FALSE);
+            END_IF;
+            
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+// Helper functions
+FUNCTION "TryEstablishConnection" : BOOL
+BEGIN
+    // Placeholder for actual connection logic
+    // In real implementation, would use Modbus TCP/IP or serial communication
+    RETURN := TRUE;
+END_FUNCTION
+
+FUNCTION "PrepareModbusFrame" : BOOL
+VAR_INPUT
+    transactionID : INT;
+    data          : "OutputDB";
+END_VAR
+
+VAR_OUTPUT
+    buffer : ARRAY[*] OF BYTE;
+    length : INT;
+END_VAR
+
+BEGIN
+    // Build Modbus frame with transaction ID, protocol ID, etc.
+    // This is a simplified version
+    length := 12;  // Minimum frame size
+    RETURN := TRUE;
+END_FUNCTION
+
+FUNCTION "SendData" : BOOL
+VAR_INPUT
+    buffer : ARRAY[*] OF BYTE;
+    length : INT;
+END_VAR
+
+BEGIN
+    // Placeholder for actual send logic
+    RETURN := TRUE;
+END_FUNCTION
+
+// Type definitions
+TYPE "CommStatusEnum" : INT
+  DISCONNECTED := 0;
+  CONNECTING := 1;
+  CONNECTED := 2;
+  ERROR := 3;
+  TIMEOUT := 4;
+END_TYPE
+
+TYPE "ModbusStateEnum" : INT
+  IDLE := 0;
+  SENDING := 1;
+  WAITING := 2;
+  RECEIVING := 3;
+  PROCESSING := 4;
+END_TYPE

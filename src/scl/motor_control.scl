@@ -1,0 +1,123 @@
+FUNCTION_BLOCK "MotorControlFB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR_INPUT
+    recipe           : "RecipeDB";
+    feedback         : "MotorFeedbackDB";
+    bStop            : BOOL := FALSE;
+END_VAR
+
+VAR_OUTPUT
+    fbStatus         : "MotorStatusDB";
+    iSpeed           : INT;
+    bMotorRunning    : BOOL;
+    bError           : BOOL;
+END_VAR
+
+VAR
+    // State machine
+    eMotorState      : MotorStateEnum;
+    tStateTimer      : TON;
+    tRampTimer       : TON;
+    
+    // Ramp control
+    iTargetSpeed     : INT;
+    iCurrentSpeed    : INT;
+    iRampStep        : INT;
+    iAcceleration    : INT := 100;  // Steps per second
+    
+    // Error handling
+    iErrorCount      : INT := 0;
+    iMaxErrors       : INT := 3;
+    tErrorDebounce   : TON;
+END_VAR
+
+BEGIN
+    // === INITIALIZATION ===
+    IF NOT fbStatus.bInitialized THEN
+        iCurrentSpeed := 0;
+        eMotorState := MotorStateEnum.IDLE;
+        fbStatus.bInitialized := TRUE;
+    END_IF;
+    
+    // === STATE MACHINE ===
+    CASE eMotorState OF
+        
+        MotorStateEnum.IDLE:
+            IF recipe.bMotorEnabled AND NOT bStop THEN
+                eMotorState := MotorStateEnum.STARTING;
+                tStateTimer(IN := TRUE, PT := T#2s);
+            END_IF;
+            iCurrentSpeed := 0;
+            bMotorRunning := FALSE;
+            
+        MotorStateEnum.STARTING:
+            // Ramp up phase
+            tRampTimer(IN := TRUE, PT := T#100ms);
+            IF tRampTimer.Q THEN
+                iRampStep := iRampStep + iAcceleration;
+                IF iRampStep >= recipe.iTargetSpeed THEN
+                    iCurrentSpeed := recipe.iTargetSpeed;
+                    eMotorState := MotorStateEnum.RUNNING;
+                ELSE
+                    iCurrentSpeed := iRampStep;
+                END_IF;
+                tRampTimer(IN := FALSE);
+            END_IF;
+            
+        MotorStateEnum.RUNNING:
+            iCurrentSpeed := recipe.iTargetSpeed;
+            bMotorRunning := TRUE;
+            
+            // Monitor for errors
+            IF feedback.bOvercurrent OR feedback.bOvertemp THEN
+                eMotorState := MotorStateEnum.ERROR;
+                bError := TRUE;
+                INC(iErrorCount);
+            END_IF;
+            
+            IF bStop THEN
+                eMotorState := MotorStateEnum.STOPPING;
+            END_IF;
+            
+        MotorStateEnum.STOPPING:
+            // Ramp down phase
+            tRampTimer(IN := TRUE, PT := T#100ms);
+            IF tRampTimer.Q THEN
+                iRampStep := iRampStep - iAcceleration;
+                IF iRampStep <= 0 THEN
+                    iCurrentSpeed := 0;
+                    eMotorState := MotorStateEnum.IDLE;
+                ELSE
+                    iCurrentSpeed := iRampStep;
+                END_IF;
+                tRampTimer(IN := FALSE);
+            END_IF;
+            
+        MotorStateEnum.ERROR:
+            iCurrentSpeed := 0;
+            bMotorRunning := FALSE;
+            
+            // Error recovery logic
+            IF iErrorCount > iMaxErrors THEN
+                fbStatus.bCriticalError := TRUE;
+            ELSE
+                tErrorDebounce(IN := TRUE, PT := T#3s);
+                IF tErrorDebounce.Q THEN
+                    iErrorCount := 0;
+                    bError := FALSE;
+                    eMotorState := MotorStateEnum.IDLE;
+                    tErrorDebounce(IN := FALSE);
+                END_IF;
+            END_IF;
+            
+    END_CASE;
+    
+    // === OUTPUT ASSIGNMENT ===
+    iSpeed := iCurrentSpeed;
+    fbStatus.eState := eMotorState;
+    fbStatus.iSpeed := iCurrentSpeed;
+    fbStatus.iErrorCount := iErrorCount;
+    fbStatus.bRunning := bMotorRunning;
+    
+END_FUNCTION_BLOCK

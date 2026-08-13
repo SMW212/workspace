@@ -1,0 +1,128 @@
+FUNCTION_BLOCK "ThreeStepRegulatorFB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR_INPUT
+    // Setpoint and current value
+    rSetpoint           : REAL;        // Target value to control
+    rProcessValue       : REAL;        // Current measured value
+    
+    // Hysteresis settings (deadband)
+    rHysteresisHigh     : REAL := 2.0; // Upper deadband for switching to cooling
+    rHysteresisLow      : REAL := -2.0; // Lower deadband for switching to heating
+    
+    // Control enable
+    bEnable             : BOOL := TRUE;
+END_VAR
+
+VAR_OUTPUT
+    // 3-position control output
+    bHeating            : BOOL;        // High: Increase the value
+    bCooling            : BOOL;        // Low: Decrease the value
+    bOff                : BOOL;        // Middle: Neutral/Off state
+    
+    // Status information
+    eRegulatorState     : RegulatorStateEnum;
+    rDeviation          : REAL;        // Error between setpoint and actual value
+    iCyclesSinceChange  : INT;         // Cycles in current state (for diagnostics)
+END_VAR
+
+VAR
+    // State management
+    ePreviousState      : RegulatorStateEnum;
+    iCycleCounter       : INT := 0;
+    bStateChanged       : BOOL := FALSE;
+    
+    // Time tracking
+    tStateEntryTime     : TIME_OF_DAY;
+    tStateDuration      : TIME;
+END_VAR
+
+BEGIN
+    // === CONTROL LOGIC ===
+    IF NOT bEnable THEN
+        // Disable all outputs
+        bHeating := FALSE;
+        bCooling := FALSE;
+        bOff := TRUE;
+        eRegulatorState := RegulatorStateEnum.OFF;
+        iCycleCounter := 0;
+        RETURN;
+    END_IF;
+    
+    // Calculate deviation from setpoint
+    rDeviation := rProcessValue - rSetpoint;
+    
+    // === STATE MACHINE WITH HYSTERESIS ===
+    CASE eRegulatorState OF
+        
+        RegulatorStateEnum.OFF:
+            // Stay OFF within deadband, transition based on deviation
+            IF rDeviation > rHysteresisHigh THEN
+                // Value too high -> start cooling
+                eRegulatorState := RegulatorStateEnum.COOLING;
+                bStateChanged := TRUE;
+                
+            ELSIF rDeviation < rHysteresisLow THEN
+                // Value too low -> start heating
+                eRegulatorState := RegulatorStateEnum.HEATING;
+                bStateChanged := TRUE;
+            END_IF;
+            
+        RegulatorStateEnum.HEATING:
+            // Heating active - continue until reaching setpoint + upper hysteresis
+            IF rDeviation > (rHysteresisHigh / 2.0) THEN
+                // Reached near setpoint - go to OFF
+                eRegulatorState := RegulatorStateEnum.OFF;
+                bStateChanged := TRUE;
+            END_IF;
+            
+        RegulatorStateEnum.COOLING:
+            // Cooling active - continue until reaching setpoint - lower hysteresis
+            IF rDeviation < (rHysteresisLow / 2.0) THEN
+                // Reached near setpoint - go to OFF
+                eRegulatorState := RegulatorStateEnum.OFF;
+                bStateChanged := TRUE;
+            END_IF;
+            
+    END_CASE;
+    
+    // === SET OUTPUTS BASED ON STATE ===
+    CASE eRegulatorState OF
+        RegulatorStateEnum.OFF:
+            bHeating := FALSE;
+            bCooling := FALSE;
+            bOff := TRUE;
+            
+        RegulatorStateEnum.HEATING:
+            bHeating := TRUE;
+            bCooling := FALSE;
+            bOff := FALSE;
+            
+        RegulatorStateEnum.COOLING:
+            bHeating := FALSE;
+            bCooling := TRUE;
+            bOff := FALSE;
+            
+    END_CASE;
+    
+    // === CYCLE TRACKING ===
+    IF bStateChanged THEN
+        iCycleCounter := 0;
+        ePreviousState := eRegulatorState;
+        bStateChanged := FALSE;
+        tStateEntryTime := CURRENT_TIME;
+    ELSE
+        INC(iCycleCounter);
+    END_IF;
+    
+    // Calculate time in current state
+    tStateDuration := CURRENT_TIME - tStateEntryTime;
+
+END_FUNCTION_BLOCK
+
+// === TYPE DEFINITION ===
+TYPE "RegulatorStateEnum" : INT
+  OFF := 0;       // No action - value within acceptable range
+  HEATING := 1;   // Actively increasing value
+  COOLING := 2;   // Actively decreasing value
+END_TYPE

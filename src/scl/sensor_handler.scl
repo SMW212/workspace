@@ -1,0 +1,119 @@
+FUNCTION_BLOCK "SensorHandlerFB"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR_INPUT
+    input_data       : "SensorInputDB";
+END_VAR
+
+VAR_OUTPUT
+    processed_data   : "ProcessedDataDB";
+    bValidData       : BOOL;
+    iQualityScore    : INT;
+END_VAR
+
+VAR
+    // Moving average filter for smooth readings
+    aTemperatureBuffer : ARRAY[0..9] OF INT;
+    iPressureBuffer    : ARRAY[0..9] OF INT;
+    iBufferIndex       : INT := 0;
+    
+    // Sensor validation
+    iTemperatureMin    : INT := -10;
+    iTemperatureMax    : INT := 120;
+    iPressureMin       : REAL := 0.5;
+    iPressureMax       : REAL := 10.0;
+    
+    // Fault detection
+    iConsecutiveErrors : INT := 0;
+    iMaxConsecutiveErrors : INT := 5;
+    bSensorFault       : BOOL := FALSE;
+END_VAR
+
+BEGIN
+    // === VALIDATE INPUT DATA ===
+    bValidData := ValidateSensorRange(
+        temperature := input_data.iTemperature,
+        pressure := input_data.rPressure
+    );
+    
+    // === APPLY FILTERING ===
+    IF bValidData THEN
+        iConsecutiveErrors := 0;
+        
+        // Moving average for temperature
+        aTemperatureBuffer[iBufferIndex] := input_data.iTemperature;
+        processed_data.iTemperatureFiltered := ComputeMovingAverage(
+            buffer := aTemperatureBuffer,
+            size := 10
+        );
+        
+        // Moving average for pressure
+        iPressureBuffer[iBufferIndex] := INT(input_data.rPressure * 100);
+        processed_data.rPressureFiltered := 
+            REAL(ComputeMovingAverage(
+                buffer := iPressureBuffer,
+                size := 10
+            )) / 100.0;
+        
+        // Cycle buffer index
+        INC(iBufferIndex);
+        IF iBufferIndex >= 10 THEN
+            iBufferIndex := 0;
+        END_IF;
+        
+    ELSE
+        INC(iConsecutiveErrors);
+        
+        IF iConsecutiveErrors >= iMaxConsecutiveErrors THEN
+            bSensorFault := TRUE;
+        END_IF;
+    END_IF;
+    
+    // === CALCULATE QUALITY SCORE ===
+    iQualityScore := CalculateQualityScore(
+        isValid := bValidData,
+        consecutiveErrors := iConsecutiveErrors
+    );
+    
+    processed_data.bValid := bValidData;
+    processed_data.bSensorFault := bSensorFault;
+    processed_data.iQualityScore := iQualityScore;
+    processed_data.timestamp := CURRENT_TIME;
+
+END_FUNCTION_BLOCK
+
+// Helper function for range validation
+FUNCTION "ValidateSensorRange" : BOOL
+VAR_INPUT
+    temperature : INT;
+    pressure    : REAL;
+END_VAR
+
+BEGIN
+    IF (temperature >= -10) AND (temperature <= 120) AND 
+       (pressure >= 0.5) AND (pressure <= 10.0) THEN
+        RETURN := TRUE;
+    ELSE
+        RETURN := FALSE;
+    END_IF;
+END_FUNCTION
+
+// Moving average calculation
+FUNCTION "ComputeMovingAverage" : INT
+VAR_INPUT
+    buffer : ARRAY[*] OF INT;
+    size   : INT;
+END_VAR
+
+VAR
+    iSum : DINT := 0;
+    i    : INT;
+END_VAR
+
+BEGIN
+    FOR i := 0 TO size - 1 DO
+        iSum := iSum + buffer[i];
+    END_FOR;
+    
+    RETURN := INT(iSum / size);
+END_FUNCTION

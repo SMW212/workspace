@@ -1,0 +1,77 @@
+// Example usage of FB_PIDRegulator
+// This example shows how to use the PID regulator in a typical control application
+
+PROGRAM "PIDRegulatorExample"
+{ S7_Optimized_Access := 'TRUE' }
+
+VAR
+    // PID controller instance
+    pidController     : "FB_PIDRegulator";
+    
+    // Process variables
+    rTemperatureSetpoint : REAL := 50.0;    // Target temperature in °C
+    rTemperatureActual   : REAL;            // Measured temperature from sensor
+    rHeaterOutput        : REAL;            // Output to heater (0-100%)
+    
+    // Control parameters
+    bEnableControl    : BOOL := TRUE;
+    bManualMode       : BOOL := FALSE;
+    rManualOutput     : REAL := 0.0;
+    
+    // PID tuning parameters (example values - tune for your process)
+    rKp               : REAL := 2.0;        // Proportional gain
+    rTi               : REAL := 5.0;        // Integral time (seconds)
+    rTd               : REAL := 1.0;        // Derivative time (seconds)
+    
+    // Cycle time (for 100ms cycle, set to 0.1)
+    rCycleTime        : REAL := 0.1;        // 100ms cycle time in seconds
+END_VAR
+
+BEGIN
+    // Call the PID regulator function block
+    pidController(
+        // Process variables
+        Setpoint := rTemperatureSetpoint,
+        ProcessValue := rTemperatureActual,
+        
+        // PID parameters
+        Kp := rKp,
+        Ti := rTi,
+        Td := rTd,
+        
+        // Output limits
+        OutputMin := 0.0,
+        OutputMax := 100.0,
+        
+        // Control mode
+        Enable := bEnableControl,
+        ManualMode := bManualMode,
+        ManualOutput := rManualOutput,
+        
+        // Cycle time
+        CycleTime := rCycleTime,
+        
+        // Anti-windup (recommended: TRUE)
+        AntiWindupEnable := TRUE,
+        
+        // Derivative filter (reduces noise sensitivity)
+        DerivativeFilter := 0.1,
+        
+        // Setpoint rate limiting (optional, 0 = disabled)
+        SetpointRateLimit := 0.0,
+        
+        // Outputs
+        Output => rHeaterOutput,
+        Error => pidController.Error,
+        P_Term => pidController.P_Term,
+        I_Term => pidController.I_Term,
+        D_Term => pidController.D_Term,
+        Status => pidController.Status
+    );
+    
+    // Use rHeaterOutput to control your actuator (e.g., PWM, analog output, etc.)
+    // Example: Write to analog output
+    // "AnalogOutput".rValue := rHeaterOutput;
+    
+END_PROGRAM
+
