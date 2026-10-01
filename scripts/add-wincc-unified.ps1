@@ -25,7 +25,9 @@ param(
     # Device creation variant to try (1-5). Only ONE variant runs per start: after a failed call the Openness session may be broken.
     [int]$Variant           = 1,
     # Only print the device tree (names, type identifiers) of the open project and exit
-    [switch]$ListDevices
+    [switch]$ListDevices,
+    # Use an already existing (manually created) HMI/PC device instead of creating one, e.g. -UseExisting PC-System_1
+    [string]$UseExisting = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,48 +102,58 @@ $script:hmiDevice = $null
 $script:hmi = $null
 
 # ---------- 1. device ----------
-Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
-    $typeId = $HmiTypeIdentifier
-    if (-not $typeId) {
-        $found = @($tia.HardwareCatalog.Find("WinCC Unified"))
-        Write-Host "Katalogeintraege mit 'WinCC Unified': $($found.Count)"
-        $found | ForEach-Object { Write-Host ("  {0}  |  {1}  |  {2}" -f $_.TypeIdentifier, $_.TypeName, $_.CatalogPath) }
-        # Select by order number (the catalog Name property is empty in V21; TypeName/CatalogPath are listed above): 6AV2 155-... = WinCC Unified PC runtime.
-        # Highest version that does not exceed the installed TIA version wins (e.g. 21.0.1.0 for V21).
-        $major = [int]($TiaVersion -replace '\D', '')
-        $pc = @($found | Where-Object { $_.TypeIdentifier -match "6AV2 155-.*/(\d+)\.(\d+)\.(\d+)\.(\d+)$" -and [int]$Matches[1] -le $major } |
-            Sort-Object { $null = $_.TypeIdentifier -match "/(\d+)\.(\d+)\.(\d+)\.(\d+)$"; [version]"$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } -Descending)
-        if ($pc.Count -eq 0) { throw "Kein Eintrag 6AV2 155 gefunden. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
-        $typeId = $pc[0].TypeIdentifier
+if ($UseExisting) {
+    $script:hmiDevice = $project.Devices | Where-Object { $_.Name -eq $UseExisting } | Select-Object -First 1
+    if (-not $script:hmiDevice) {
+        Write-Host "Geraet '$UseExisting' nicht gefunden. Vorhanden:" -ForegroundColor Red
+        $project.Devices | ForEach-Object { Write-Host ("  - " + $_.Name) }
+        return
     }
-    Write-Host "TypeIdentifier: $typeId"
-    Write-Host "Vorhandene Geraete im Projekt:"
-    $project.Devices | ForEach-Object { Write-Host ("  - " + $_.Name) }
-    Write-Host "Create-Methoden von Devices:"
-    $project.Devices.GetType().GetMethods() | Where-Object { $_.Name -like "Create*" } | ForEach-Object { Write-Host ("  " + $_.ToString()) }
+    Write-Host "Verwende vorhandenes Geraet: $($script:hmiDevice.Name)"
+} else {
+        Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
+        $typeId = $HmiTypeIdentifier
+        if (-not $typeId) {
+            $found = @($tia.HardwareCatalog.Find("WinCC Unified"))
+            Write-Host "Katalogeintraege mit 'WinCC Unified': $($found.Count)"
+            $found | ForEach-Object { Write-Host ("  {0}  |  {1}  |  {2}" -f $_.TypeIdentifier, $_.TypeName, $_.CatalogPath) }
+            # Select by order number (the catalog Name property is empty in V21; TypeName/CatalogPath are listed above): 6AV2 155-... = WinCC Unified PC runtime.
+            # Highest version that does not exceed the installed TIA version wins (e.g. 21.0.1.0 for V21).
+            $major = [int]($TiaVersion -replace '\D', '')
+            $pc = @($found | Where-Object { $_.TypeIdentifier -match "6AV2 155-.*/(\d+)\.(\d+)\.(\d+)\.(\d+)$" -and [int]$Matches[1] -le $major } |
+                Sort-Object { $null = $_.TypeIdentifier -match "/(\d+)\.(\d+)\.(\d+)\.(\d+)$"; [version]"$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } -Descending)
+            if ($pc.Count -eq 0) { throw "Kein Eintrag 6AV2 155 gefunden. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
+            $typeId = $pc[0].TypeIdentifier
+        }
+        Write-Host "TypeIdentifier: $typeId"
+        Write-Host "Vorhandene Geraete im Projekt:"
+        $project.Devices | ForEach-Object { Write-Host ("  - " + $_.Name) }
+        Write-Host "Create-Methoden von Devices:"
+        $project.Devices.GetType().GetMethods() | Where-Object { $_.Name -like "Create*" } | ForEach-Object { Write-Host ("  " + $_.ToString()) }
 
-    # Name rules for PC systems are unclear; only the selected variant runs (a failed call can break the Openness session).
-    $variants = @(
-        @{ Text = "CreateWithItem(type, '$HmiName', '$HmiName')";       Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, $HmiName) } },
-        @{ Text = "CreateWithItem(type, 'PC-System_1', '$HmiName')";    Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC-System_1", $HmiName) } },
-        @{ Text = "CreateWithItem(type, '$HmiName', '${HmiName}_RT')";  Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, "${HmiName}_RT") } },
-        @{ Text = "Create(type, '$HmiName')";                           Run = { param($p) $p.Devices.Create($typeId, $HmiName) } },
-        @{ Text = "CreateWithItem(type, 'PC1', 'PC1')";                 Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC1", "PC1") } }
-    )
-    if ($Variant -lt 1 -or $Variant -gt $variants.Count) { throw "-Variant muss 1..$($variants.Count) sein." }
-    $v = $variants[$Variant - 1]
-    $lastErr = $null
-    try {
-        Write-Host ("Variante ${Variant}: " + $v.Text)
-        $script:hmiDevice = & $v.Run $project
-        Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
-    } catch {
-        $lastErr = $_.Exception
-        Write-Host ("  fehlgeschlagen: " + ($_.Exception.GetBaseException().Message -replace "\s+", " ")) -ForegroundColor DarkYellow
-        Write-Host "Ist TIA Portal noch erreichbar? Falls nicht: TIA neu starten, Projekt oeffnen und mit -Variant $($Variant + 1) erneut starten." -ForegroundColor Yellow
-    }
-    if (-not $script:hmiDevice) { throw $lastErr }
-} | Out-Null
+        # Name rules for PC systems are unclear; only the selected variant runs (a failed call can break the Openness session).
+        $variants = @(
+            @{ Text = "CreateWithItem(type, '$HmiName', '$HmiName')";       Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, $HmiName) } },
+            @{ Text = "CreateWithItem(type, 'PC-System_1', '$HmiName')";    Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC-System_1", $HmiName) } },
+            @{ Text = "CreateWithItem(type, '$HmiName', '${HmiName}_RT')";  Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, "${HmiName}_RT") } },
+            @{ Text = "Create(type, '$HmiName')";                           Run = { param($p) $p.Devices.Create($typeId, $HmiName) } },
+            @{ Text = "CreateWithItem(type, 'PC1', 'PC1')";                 Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC1", "PC1") } }
+        )
+        if ($Variant -lt 1 -or $Variant -gt $variants.Count) { throw "-Variant muss 1..$($variants.Count) sein." }
+        $v = $variants[$Variant - 1]
+        $lastErr = $null
+        try {
+            Write-Host ("Variante ${Variant}: " + $v.Text)
+            $script:hmiDevice = & $v.Run $project
+            Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
+        } catch {
+            $lastErr = $_.Exception
+            Write-Host ("  fehlgeschlagen: " + ($_.Exception.GetBaseException().Message -replace "\s+", " ")) -ForegroundColor DarkYellow
+            Write-Host "Ist TIA Portal noch erreichbar? Falls nicht: TIA neu starten, Projekt oeffnen und mit -Variant $($Variant + 1) erneut starten." -ForegroundColor Yellow
+        }
+        if (-not $script:hmiDevice) { throw $lastErr }
+    } | Out-Null
+}
 if (-not $script:hmiDevice) { Write-Host "`nAbbruch: Geraet konnte nicht angelegt werden." -ForegroundColor Red; return }
 
 # ---------- 2. IP address ----------
