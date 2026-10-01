@@ -23,7 +23,9 @@ param(
     [int]$CircleDiameterPx  = 19,    # ~5 mm at 96 dpi
     [string]$TiaVersion     = "V21",
     # Device creation variant to try (1-5). Only ONE variant runs per start: after a failed call the Openness session may be broken.
-    [int]$Variant           = 1
+    [int]$Variant           = 1,
+    # Only print the device tree (names, type identifiers) of the open project and exit
+    [switch]$ListDevices
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,6 +81,20 @@ $tia = $procs[0].Attach()
 $project = $tia.Projects | Select-Object -First 1
 if (-not $project) { throw "Im laufenden TIA Portal ist kein Projekt geoeffnet." }
 Write-Host "Projekt: $($project.Name)"
+
+if ($ListDevices) {
+    function Show-Item($item, [string]$indent) {
+        $tid = ""; try { $tid = $item.TypeIdentifier } catch {}
+        Write-Host ("{0}- {1}  [{2}]  pos={3}" -f $indent, $item.Name, $tid, $item.PositionNumber)
+        foreach ($sub in $item.DeviceItems) { Show-Item $sub ($indent + "    ") }
+    }
+    foreach ($d in $project.Devices) {
+        $tid = ""; try { $tid = $d.TypeIdentifier } catch {}
+        Write-Host ("Geraet: {0}  [{1}]" -f $d.Name, $tid)
+        foreach ($i in $d.DeviceItems) { Show-Item $i "    " }
+    }
+    return
+}
 
 $script:hmiDevice = $null
 $script:hmi = $null
