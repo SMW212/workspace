@@ -50,20 +50,14 @@ foreach ($dll in $dlls) {
 }
 
 $mode = if ($WithUI) { [Siemens.Engineering.TiaPortalMode]::WithUserInterface } else { [Siemens.Engineering.TiaPortalMode]::WithoutUserInterface }
+# V21 removed TiaPortal.Start(); a new instance is created via the constructor.
+# Older versions use the static Start().
 $tiaType = [Siemens.Engineering.TiaPortal]
-if (-not ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start")) {
-    Write-Host "TiaPortal.Start not available in this version. Public API of Siemens.Engineering.TiaPortal:"
-    Write-Host "--- Static methods ---"
-    $tiaType.GetMethods("Public,Static") | ForEach-Object { $_.ToString() }
-    Write-Host "--- Constructors ---"
-    $tiaType.GetConstructors() | ForEach-Object { $_.ToString() }
-    Write-Host "--- Instance methods ---"
-    $tiaType.GetMethods("Public,Instance,DeclaredOnly") | ForEach-Object { $_.ToString() }
-    Write-Host "--- Enum TiaPortalMode ---"
-    [Enum]::GetNames([Siemens.Engineering.TiaPortalMode])
-    return
+if ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start") {
+    $tia = [Siemens.Engineering.TiaPortal]::Start($mode)
+} else {
+    $tia = [Siemens.Engineering.TiaPortal]::new($mode)
 }
-$tia = [Siemens.Engineering.TiaPortal]::Start($mode)   # use ::Open for an already running instance
 
 try {
     if (-not (Test-Path $ProjectDir)) { New-Item -ItemType Directory -Path $ProjectDir -Force | Out-Null }
