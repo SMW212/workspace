@@ -87,10 +87,8 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
     if (-not $typeId) {
         $found = @($tia.HardwareCatalog.Find("WinCC Unified"))
         Write-Host "Katalogeintraege mit 'WinCC Unified': $($found.Count)"
-        $found | ForEach-Object { Write-Host ("  {0}  |  {1}" -f $_.TypeIdentifier, $_.Name) }
-        Write-Host "Eigenschaften eines Katalogeintrags:"
-        $found | Select-Object -First 1 | Format-List * | Out-String | Write-Host
-        # Catalog names are empty in V21, so select by order number: 6AV2 155-... = WinCC Unified PC runtime.
+        $found | ForEach-Object { Write-Host ("  {0}  |  {1}  |  {2}" -f $_.TypeIdentifier, $_.TypeName, $_.CatalogPath) }
+        # Select by order number (the catalog Name property is empty in V21; TypeName/CatalogPath are listed above): 6AV2 155-... = WinCC Unified PC runtime.
         # Highest version that does not exceed the installed TIA version wins (e.g. 21.0.1.0 for V21).
         $major = [int]($TiaVersion -replace '\D', '')
         $pc = @($found | Where-Object { $_.TypeIdentifier -match "6AV2 155-.*/(\d+)\.(\d+)\.(\d+)\.(\d+)$" -and [int]$Matches[1] -le $major } |
