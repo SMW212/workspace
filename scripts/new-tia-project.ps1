@@ -14,6 +14,8 @@ param(
     [switch]$WithUI
 )
 
+$ErrorActionPreference = "Stop"
+
 $apiDir = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\net48"
 # Dependencies (e.g. Siemens.Engineering.Contract.dll) do not necessarily live in the net48 folder,
 # so resolve missing assemblies by searching the whole TIA Portal installation folder once.
@@ -93,6 +95,12 @@ try {
 
     $project.Save()
     Write-Host "Project saved."
+}
+catch {
+    Write-Host "FEHLER: $($_.Exception.Message)" -ForegroundColor Red
+    $inner = $_.Exception.InnerException
+    while ($inner) { Write-Host "  Ursache: $($inner.Message)" -ForegroundColor Red; $inner = $inner.InnerException }
+    Write-Host $_.ScriptStackTrace
 }
 finally {
     if (-not $WithUI) { $tia.Dispose() }
