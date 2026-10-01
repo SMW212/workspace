@@ -15,13 +15,18 @@ param(
 )
 
 $apiDir = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\net48"
-# Newer versions ship Siemens.TiaPortal.OpennessApiNN.dll, older ones Siemens.Engineering.dll
-$dll = @(Get-ChildItem -Path $apiDir -Filter "Siemens.TiaPortal.OpennessApi*.dll" -ErrorAction SilentlyContinue) +
-       @(Get-ChildItem -Path $apiDir -Filter "Siemens.Engineering.dll" -ErrorAction SilentlyContinue) |
-       Select-Object -First 1 -ExpandProperty FullName
-if (-not $dll) { throw "No Openness DLL found in: $apiDir" }
-Write-Host "Using Openness DLL: $dll"
-Add-Type -Path $dll
+# V21 splits the API into several DLLs (Siemens.Engineering.Base.dll, ...Step7.dll, ...);
+# older versions ship a single Siemens.Engineering.dll.
+$dlls = @()
+foreach ($name in "Siemens.Engineering.Base.dll", "Siemens.Engineering.Step7.dll", "Siemens.Engineering.dll") {
+    $path = Join-Path $apiDir $name
+    if (Test-Path $path) { $dlls += $path }
+}
+if ($dlls.Count -eq 0) { throw "No Openness DLL found in: $apiDir" }
+foreach ($dll in $dlls) {
+    Write-Host "Loading Openness DLL: $dll"
+    Add-Type -Path $dll
+}
 
 $mode = if ($WithUI) { [Siemens.Engineering.TiaPortalMode]::WithUserInterface } else { [Siemens.Engineering.TiaPortalMode]::WithoutUserInterface }
 $tia = [Siemens.Engineering.TiaPortal]::Start($mode)   # use ::Open for an already running instance
