@@ -15,6 +15,22 @@ param(
 )
 
 $apiDir = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\net48"
+# Dependencies (e.g. Siemens.Engineering.Contract.dll) do not necessarily live in the net48 folder,
+# so resolve missing assemblies by searching the whole TIA Portal installation folder once.
+$portalRoot = "C:\Program Files\Siemens\Automation\Portal $TiaVersion"
+$script:dllIndex = @{}
+Get-ChildItem -Path $portalRoot -Filter "Siemens.Engineering*.dll" -Recurse -ErrorAction SilentlyContinue |
+    ForEach-Object { if (-not $script:dllIndex.ContainsKey($_.BaseName)) { $script:dllIndex[$_.BaseName] = $_.FullName } }
+[AppDomain]::CurrentDomain.add_AssemblyResolve([ResolveEventHandler]{
+    param($sender, $e)
+    $n = ($e.Name -split ',')[0]
+    if ($script:dllIndex.ContainsKey($n)) {
+        Write-Host "Resolved dependency: $($script:dllIndex[$n])"
+        return [Reflection.Assembly]::LoadFrom($script:dllIndex[$n])
+    }
+    return $null
+})
+
 # V21 splits the API into several DLLs (Siemens.Engineering.Base.dll, ...Step7.dll, ...);
 # older versions ship a single Siemens.Engineering.dll.
 $dlls = @()
