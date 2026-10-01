@@ -87,13 +87,15 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
     if (-not $typeId) {
         $found = @($tia.HardwareCatalog.Find("WinCC Unified"))
         Write-Host "Katalogeintraege mit 'WinCC Unified': $($found.Count)"
-        $found | ForEach-Object {
-            Write-Host ("  " + $_.TypeIdentifier)
-        }
+        $found | ForEach-Object { Write-Host ("  {0}  |  {1}" -f $_.TypeIdentifier, $_.Name) }
         Write-Host "Eigenschaften eines Katalogeintrags:"
         $found | Select-Object -First 1 | Format-List * | Out-String | Write-Host
-        $pc = @($found | Where-Object { ($_.TypeIdentifier + " " + $_.Name) -match "PC" -and ($_.TypeIdentifier + " " + $_.Name) -match "Runtime|RT" })
-        if ($pc.Count -ne 1) { throw "Katalogeintrag nicht eindeutig. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
+        # Catalog names are empty in V21, so select by order number: 6AV2 155-... = WinCC Unified PC runtime.
+        # Highest version that does not exceed the installed TIA version wins (e.g. 21.0.1.0 for V21).
+        $major = [int]($TiaVersion -replace '\D', '')
+        $pc = @($found | Where-Object { $_.TypeIdentifier -match "6AV2 155-.*/(\d+)\.(\d+)\.(\d+)\.(\d+)$" -and [int]$Matches[1] -le $major } |
+            Sort-Object { $null = $_.TypeIdentifier -match "/(\d+)\.(\d+)\.(\d+)\.(\d+)$"; [version]"$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } -Descending)
+        if ($pc.Count -eq 0) { throw "Kein Eintrag 6AV2 155 gefunden. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
         $typeId = $pc[0].TypeIdentifier
     }
     Write-Host "TypeIdentifier: $typeId"
@@ -195,14 +197,59 @@ Step "Kreis (${CircleDiameterPx}px ~ 5 mm) oben links" {
 
 Step "Hintergrundfarbe an $TagName koppeln (false = dunkelgrau, true = hellgruen)" {
     if (-not $script:circle) { throw "Kreis nicht vorhanden." }
-    $dynType = Find-Type "AppearanceDynamization"
-    if (-not $dynType) { $dynType = Find-Type "TagDynamization" }
-    if (-not $dynType) { Show-Api $script:circle.Dynamizations "Dynamizations"; throw "Kein passender Dynamisierungstyp gefunden." }
-    Write-Host "Dynamisierungstyp: $($dynType.FullName)"
-    $dyn = Create-Generic $script:circle.Dynamizations $dynType "BackColor"
-    Show-Api $dyn "Dynamisierung (zur Pruefung der Eigenschaften)"
-    $dyn.SetAttribute("Tag", $TagName)
-    # Mapping: 0 -> dunkelgrau (64,64,64), 1 -> hellgruen (144,238,144); exact mapping API depends on V21
+    $colors = [ordered]@{ "0" = @(64,64,64); "1" = @(144,238,144) }   # false -> dunkelgrau, true -> hellgruen
+
+    function Set-ColorAttr($obj, [string]$attr, [int[]]$rgb) {
+        # The exact value format of colour attributes differs between versions: try the likely ones.
+        $argb = [System.Drawing.Color]::FromArgb(255, $rgb[0], $rgb[1], $rgb[2])
+        $uint = [uint32](([uint32]255 -shl 24) -bor ([uint32]$rgb[0] -shl 16) -bor ([uint32]$rgb[1] -shl 8) -bor [uint32]$rgb[2])
+        $hex  = "#{0:X2}{1:X2}{2:X2}" -f $rgb[0], $rgb[1], $rgb[2]
+        $last = $null
+        foreach ($v in @($argb, $uint, $hex, ("{0},{1},{2}" -f $rgb[0], $rgb[1], $rgb[2]))) {
+            try { $obj.SetAttribute($attr, $v); Write-Host "  $attr = $v ($($v.GetType().Name))"; return } catch { $last = $_ }
+        }
+        throw $last
+    }
+
+    # Candidate dynamization types, most specific first. The first one that can be created AND configured wins.
+    $names = "AppearanceDynamization", "TagDynamization", "ResourceListDynamization"
+    $configured = $false
+    foreach ($n in $names) {
+        $dynType = Find-Type $n
+        if (-not $dynType) { Write-Host "Typ $n nicht vorhanden."; continue }
+        Write-Host "Versuche Dynamisierungstyp: $($dynType.FullName)"
+        try {
+            $dyn = Create-Generic $script:circle.Dynamizations $dynType "BackColor"
+            Show-Api $dyn "Dynamisierung $n"
+            $dyn.SetAttribute("Tag", $TagName)
+            # Range/appearance list: look for a composition member that can create entries
+            $coll = $dyn.GetType().GetProperties() | Where-Object { $_.Name -match "Appearances|Ranges|Entries|Mappings|Items" } | Select-Object -First 1
+            if ($coll) {
+                $list = $coll.GetValue($dyn)
+                Show-Api $list "Eintragsliste $($coll.Name)"
+                foreach ($k in $colors.Keys) {
+                    $entry = $list.Create()
+                    foreach ($a in "RangeFrom","LowerBound","Value","From") { try { $entry.SetAttribute($a, [int]$k); break } catch { } }
+                    foreach ($a in "RangeTo","UpperBound","To") { try { $entry.SetAttribute($a, [int]$k) } catch { } }
+                    Set-ColorAttr $entry "BackColor" $colors[$k]
+                }
+                $configured = $true; break
+            } else { Write-Warning "Typ $n hat keine Eintragsliste fuer die Farbzuordnung." }
+        } catch {
+            Write-Warning "$n fehlgeschlagen: $($_.Exception.Message)"
+            try { $script:circle.Dynamizations | Where-Object { $_.Name -eq "BackColor" } | ForEach-Object { $_.Delete() } } catch { }
+        }
+    }
+
+    if (-not $configured) {
+        # Fallback: script-based dynamization (JavaScript expression evaluated on tag change)
+        $st = Find-Type "ScriptDynamization"
+        if (-not $st) { Show-Api $script:circle.Dynamizations "Dynamizations"; throw "Keine Dynamisierung konfigurierbar (Details siehe API-Ausgabe oben)." }
+        $dyn = Create-Generic $script:circle.Dynamizations $st "BackColor"
+        Show-Api $dyn "ScriptDynamization"
+        $dyn.SetAttribute("ScriptCode", "export function BackColor_Dynamization(item) { return Tags.Read('$TagName') ? 'rgb(144,238,144)' : 'rgb(64,64,64)'; }")
+        Write-Warning "Farbzuordnung per Skript-Dynamisierung gesetzt (Fallback)."
+    }
 } | Out-Null
 
 try { $project.Save(); Write-Host "`nProjekt gespeichert." } catch { Write-Warning "Speichern fehlgeschlagen: $($_.Exception.Message)" }
