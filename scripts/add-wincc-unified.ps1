@@ -88,8 +88,12 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
         $found = @($tia.HardwareCatalog.Find("WinCC Unified"))
         Write-Host "Katalogeintraege mit 'WinCC Unified': $($found.Count)"
         $found | ForEach-Object { Write-Host ("  {0}  |  {1}" -f $_.TypeIdentifier, $_.Name) }
-        $pc = @($found | Where-Object { ($_.TypeIdentifier + " " + $_.Name) -match "PC" -and ($_.TypeIdentifier + " " + $_.Name) -match "Runtime|RT" })
-        if ($pc.Count -ne 1) { throw "Katalogeintrag nicht eindeutig. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
+        # Catalog names are empty in V21, so select by order number: 6AV2 155-... = WinCC Unified PC runtime.
+        # Highest version that does not exceed the installed TIA version wins (e.g. 21.0.1.0 for V21).
+        $major = [int]($TiaVersion -replace '\D', '')
+        $pc = @($found | Where-Object { $_.TypeIdentifier -match "6AV2 155-.*/(\d+)\.(\d+)\.(\d+)\.(\d+)$" -and [int]$Matches[1] -le $major } |
+            Sort-Object { $null = $_.TypeIdentifier -match "/(\d+)\.(\d+)\.(\d+)\.(\d+)$"; [version]"$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } -Descending)
+        if ($pc.Count -eq 0) { throw "Kein Eintrag 6AV2 155 gefunden. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
         $typeId = $pc[0].TypeIdentifier
     }
     Write-Host "TypeIdentifier: $typeId"
