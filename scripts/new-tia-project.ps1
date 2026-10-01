@@ -50,6 +50,19 @@ foreach ($dll in $dlls) {
 }
 
 $mode = if ($WithUI) { [Siemens.Engineering.TiaPortalMode]::WithUserInterface } else { [Siemens.Engineering.TiaPortalMode]::WithoutUserInterface }
+$tiaType = [Siemens.Engineering.TiaPortal]
+if (-not ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start")) {
+    Write-Host "TiaPortal.Start not available in this version. Public API of Siemens.Engineering.TiaPortal:"
+    Write-Host "--- Static methods ---"
+    $tiaType.GetMethods("Public,Static") | ForEach-Object { $_.ToString() }
+    Write-Host "--- Constructors ---"
+    $tiaType.GetConstructors() | ForEach-Object { $_.ToString() }
+    Write-Host "--- Instance methods ---"
+    $tiaType.GetMethods("Public,Instance,DeclaredOnly") | ForEach-Object { $_.ToString() }
+    Write-Host "--- Enum TiaPortalMode ---"
+    [Enum]::GetNames([Siemens.Engineering.TiaPortalMode])
+    return
+}
 $tia = [Siemens.Engineering.TiaPortal]::Start($mode)   # use ::Open for an already running instance
 
 try {
