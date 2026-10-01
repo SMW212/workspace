@@ -53,22 +53,36 @@ foreach ($dll in $dlls) {
     Add-Type -Path $dll
 }
 
+# Environment info for troubleshooting connection problems
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+Write-Host "PowerShell $($PSVersionTable.PSVersion), CLR $($PSVersionTable.CLRVersion), 64-bit process: $([Environment]::Is64BitProcess), elevated: $isAdmin, user: $env:USERDOMAIN\$env:USERNAME"
+
 $mode = if ($WithUI) { [Siemens.Engineering.TiaPortalMode]::WithUserInterface } else { [Siemens.Engineering.TiaPortalMode]::WithoutUserInterface }
-if ($Attach) {
-    $procs = @([Siemens.Engineering.TiaPortal]::GetProcesses())
-    if ($procs.Count -eq 0) { throw "No running TIA Portal instance found. Start TIA Portal first (user must be in group 'Siemens TIA Openness')." }
-    if ($procs.Count -gt 1) { Write-Warning "$($procs.Count) instances found, using the first one." }
-    Write-Host "Attaching to TIA Portal process $($procs[0].Id) (project: $($procs[0].ProjectPath))"
-    $tia = $procs[0].Attach()
-} else {
-    # V21 removed TiaPortal.Start(); a new instance is created via the constructor.
-    # Older versions use the static Start().
-    $tiaType = [Siemens.Engineering.TiaPortal]
-    if ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start") {
-        $tia = [Siemens.Engineering.TiaPortal]::Start($mode)
+try {
+    if ($Attach) {
+        $procs = @([Siemens.Engineering.TiaPortal]::GetProcesses())
+        if ($procs.Count -eq 0) { throw "No running TIA Portal instance found. Start TIA Portal first (user must be in group 'Siemens TIA Openness')." }
+        if ($procs.Count -gt 1) { Write-Warning "$($procs.Count) instances found, using the first one." }
+        Write-Host "Attaching to TIA Portal process $($procs[0].Id) (project: $($procs[0].ProjectPath))"
+        $tia = $procs[0].Attach()
     } else {
-        $tia = [Siemens.Engineering.TiaPortal]::new($mode)
+        # V21 removed TiaPortal.Start(); a new instance is created via the constructor.
+        # Older versions use the static Start().
+        $tiaType = [Siemens.Engineering.TiaPortal]
+        if ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start") {
+            $tia = [Siemens.Engineering.TiaPortal]::Start($mode)
+        } else {
+            $tia = [Siemens.Engineering.TiaPortal]::new($mode)
+        }
     }
+
+}
+catch {
+    Write-Host "VERBINDUNG FEHLGESCHLAGEN: $($_.Exception.Message)" -ForegroundColor Red
+    $e = $_.Exception
+    while ($e) { Write-Host "  [$($e.GetType().FullName)] $($e.Message)" -ForegroundColor Red; $e = $e.InnerException }
+    Write-Host "Hinweis: TIA Portal und PowerShell muessen mit gleichen Rechten laufen (beide normal oder beide als Administrator)."
+    return
 }
 
 try {
