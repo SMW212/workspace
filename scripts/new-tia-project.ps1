@@ -9,12 +9,12 @@ param(
     [string]$SubnetMask    = "255.255.255.0",
     # CPU 1516-3 PN/DP; adjust order number / firmware to the real hardware.
     [string]$TypeIdentifier = "OrderNumber:6ES7 516-3AN02-0AB0/V2.9",
-    # TIA Portal version, e.g. V17, V18, V19, V20
-    [string]$TiaVersion    = "V18",
+    # TIA Portal version, e.g. V19, V20, V21
+    [string]$TiaVersion    = "V21",
     [switch]$WithUI
 )
 
-$dll = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\Siemens.Engineering.dll"
+$dll = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\net48\Siemens.Engineering.dll"
 if (-not (Test-Path $dll)) { throw "Siemens.Engineering.dll not found: $dll" }
 Add-Type -Path $dll
 
