@@ -34,6 +34,11 @@ Get-ChildItem -Path $portalRoot -Filter "Siemens.Engineering*.dll" -Recurse -Err
 # V21 splits the API into several DLLs (Siemens.Engineering.Base.dll, ...Step7.dll, ...);
 # older versions ship a single Siemens.Engineering.dll.
 $dlls = @()
+# Dependencies live in Bin\PublicAPI; load them explicitly first
+foreach ($name in "Siemens.Engineering.Contract", "Siemens.Engineering.ClientAdapter.Interfaces") {
+    $dep = Join-Path $portalRoot "Bin\PublicAPI\$name.dll"
+    if (Test-Path $dep) { $dlls += $dep } elseif ($script:dllIndex.ContainsKey($name)) { $dlls += $script:dllIndex[$name] }
+}
 foreach ($name in "Siemens.Engineering.Base.dll", "Siemens.Engineering.Step7.dll", "Siemens.Engineering.dll") {
     $path = Join-Path $apiDir $name
     if (Test-Path $path) { $dlls += $path }
