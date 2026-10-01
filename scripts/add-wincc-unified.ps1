@@ -87,13 +87,34 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
     if (-not $typeId) {
         $found = @($tia.HardwareCatalog.Find("WinCC Unified"))
         Write-Host "Katalogeintraege mit 'WinCC Unified': $($found.Count)"
-        $found | ForEach-Object { Write-Host ("  {0}  |  {1}" -f $_.TypeIdentifier, $_.Name) }
+        $found | ForEach-Object {
+            Write-Host ("  " + $_.TypeIdentifier)
+        }
+        Write-Host "Eigenschaften eines Katalogeintrags:"
+        $found | Select-Object -First 1 | Format-List * | Out-String | Write-Host
         $pc = @($found | Where-Object { ($_.TypeIdentifier + " " + $_.Name) -match "PC" -and ($_.TypeIdentifier + " " + $_.Name) -match "Runtime|RT" })
         if ($pc.Count -ne 1) { throw "Katalogeintrag nicht eindeutig. Waehle einen TypeIdentifier aus der Liste oben und starte mit -HmiTypeIdentifier '<wert>'." }
         $typeId = $pc[0].TypeIdentifier
     }
     Write-Host "TypeIdentifier: $typeId"
-    $script:hmiDevice = $project.Devices.CreateWithItem($typeId, $HmiName, $HmiName)
+    # Name rules differ for PC systems: try several device / device-item name combinations
+    $attempts = @(
+        @($HmiName, $HmiName),
+        @($HmiName, ""),
+        @($HmiName, "${HmiName}_RT"),
+        @($HmiName, $null),
+        @("PC-System_1", $HmiName)
+    )
+    $lastErr = $null
+    foreach ($a in $attempts) {
+        try {
+            Write-Host ("Versuch: CreateWithItem('{0}', '{1}', '{2}')" -f $typeId, $a[0], $a[1])
+            $script:hmiDevice = $project.Devices.CreateWithItem($typeId, $a[0], $a[1])
+            Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
+            break
+        } catch { $lastErr = $_.Exception; Write-Host ("  fehlgeschlagen: " + $_.Exception.InnerException.Message.Split("`n")[-1]) -ForegroundColor DarkYellow }
+    }
+    if (-not $script:hmiDevice) { throw $lastErr }
 } | Out-Null
 if (-not $script:hmiDevice) { Write-Host "`nAbbruch: Geraet konnte nicht angelegt werden." -ForegroundColor Red; return }
 
