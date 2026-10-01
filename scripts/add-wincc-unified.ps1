@@ -112,7 +112,7 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
             $script:hmiDevice = $project.Devices.CreateWithItem($typeId, $a[0], $a[1])
             Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
             break
-        } catch { $lastErr = $_.Exception; Write-Host ("  fehlgeschlagen: " + $_.Exception.InnerException.Message.Split("`n")[-1]) -ForegroundColor DarkYellow }
+        } catch { $lastErr = $_.Exception; Write-Host ("  fehlgeschlagen: " + ($_.Exception.GetBaseException().Message -replace "\s+", " ")) -ForegroundColor DarkYellow }
     }
     if (-not $script:hmiDevice) { throw $lastErr }
 } | Out-Null
