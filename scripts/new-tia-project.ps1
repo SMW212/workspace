@@ -11,7 +11,9 @@ param(
     [string]$TypeIdentifier = "OrderNumber:6ES7 516-3AN02-0AB0/V2.9",
     # TIA Portal version, e.g. V19, V20, V21
     [string]$TiaVersion    = "V21",
-    [switch]$WithUI
+    [switch]$WithUI,
+    # Attach to an already running TIA Portal instead of starting a new one
+    [switch]$Attach
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,13 +54,21 @@ foreach ($dll in $dlls) {
 }
 
 $mode = if ($WithUI) { [Siemens.Engineering.TiaPortalMode]::WithUserInterface } else { [Siemens.Engineering.TiaPortalMode]::WithoutUserInterface }
-# V21 removed TiaPortal.Start(); a new instance is created via the constructor.
-# Older versions use the static Start().
-$tiaType = [Siemens.Engineering.TiaPortal]
-if ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start") {
-    $tia = [Siemens.Engineering.TiaPortal]::Start($mode)
+if ($Attach) {
+    $procs = @([Siemens.Engineering.TiaPortal]::GetProcesses())
+    if ($procs.Count -eq 0) { throw "No running TIA Portal instance found. Start TIA Portal first (user must be in group 'Siemens TIA Openness')." }
+    if ($procs.Count -gt 1) { Write-Warning "$($procs.Count) instances found, using the first one." }
+    Write-Host "Attaching to TIA Portal process $($procs[0].Id) (project: $($procs[0].ProjectPath))"
+    $tia = $procs[0].Attach()
 } else {
-    $tia = [Siemens.Engineering.TiaPortal]::new($mode)
+    # V21 removed TiaPortal.Start(); a new instance is created via the constructor.
+    # Older versions use the static Start().
+    $tiaType = [Siemens.Engineering.TiaPortal]
+    if ($tiaType.GetMethods("Public,Static") | Where-Object Name -eq "Start") {
+        $tia = [Siemens.Engineering.TiaPortal]::Start($mode)
+    } else {
+        $tia = [Siemens.Engineering.TiaPortal]::new($mode)
+    }
 }
 
 try {
@@ -103,5 +113,5 @@ catch {
     Write-Host $_.ScriptStackTrace
 }
 finally {
-    if (-not $WithUI) { $tia.Dispose() }
+    if ($tia -and -not $WithUI -and -not $Attach) { $tia.Dispose() }
 }
