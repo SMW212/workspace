@@ -14,8 +14,13 @@ param(
     [switch]$WithUI
 )
 
-$dll = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\net48\Siemens.Engineering.dll"
-if (-not (Test-Path $dll)) { throw "Siemens.Engineering.dll not found: $dll" }
+$apiDir = "C:\Program Files\Siemens\Automation\Portal $TiaVersion\PublicAPI\$TiaVersion\net48"
+# Newer versions ship Siemens.TiaPortal.OpennessApiNN.dll, older ones Siemens.Engineering.dll
+$dll = @(Get-ChildItem -Path $apiDir -Filter "Siemens.TiaPortal.OpennessApi*.dll" -ErrorAction SilentlyContinue) +
+       @(Get-ChildItem -Path $apiDir -Filter "Siemens.Engineering.dll" -ErrorAction SilentlyContinue) |
+       Select-Object -First 1 -ExpandProperty FullName
+if (-not $dll) { throw "No Openness DLL found in: $apiDir" }
+Write-Host "Using Openness DLL: $dll"
 Add-Type -Path $dll
 
 $mode = if ($WithUI) { [Siemens.Engineering.TiaPortalMode]::WithUserInterface } else { [Siemens.Engineering.TiaPortalMode]::WithoutUserInterface }
