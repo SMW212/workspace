@@ -97,19 +97,26 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
         $typeId = $pc[0].TypeIdentifier
     }
     Write-Host "TypeIdentifier: $typeId"
-    # Name rules differ for PC systems: try several device / device-item name combinations
+    Write-Host "Vorhandene Geraete im Projekt:"
+    $project.Devices | ForEach-Object { Write-Host ("  - " + $_.Name) }
+    Write-Host "Create-Methoden von Devices:"
+    $project.Devices.GetType().GetMethods() | Where-Object { $_.Name -like "Create*" } | ForEach-Object { Write-Host ("  " + $_.ToString()) }
+
+    # Name rules differ for PC systems: try several variants. Never pass empty/null names (can break the Openness session).
+    # The project object is re-fetched before each attempt.
     $attempts = @(
-        @($HmiName, $HmiName),
-        @($HmiName, ""),
-        @($HmiName, "${HmiName}_RT"),
-        @($HmiName, $null),
-        @("PC-System_1", $HmiName)
+        @{ Text = "CreateWithItem(type, '$HmiName', '$HmiName')";        Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, $HmiName) } },
+        @{ Text = "CreateWithItem(type, 'PC-System_1', '$HmiName')";     Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC-System_1", $HmiName) } },
+        @{ Text = "CreateWithItem(type, '$HmiName', '${HmiName}_RT')";   Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, "${HmiName}_RT") } },
+        @{ Text = "Create(type, '$HmiName')";                            Run = { param($p) $p.Devices.Create($typeId, $HmiName) } }
     )
     $lastErr = $null
     foreach ($a in $attempts) {
         try {
-            Write-Host ("Versuch: CreateWithItem('{0}', '{1}', '{2}')" -f $typeId, $a[0], $a[1])
-            $script:hmiDevice = $project.Devices.CreateWithItem($typeId, $a[0], $a[1])
+            Write-Host ("Versuch: " + $a.Text)
+            $p = $tia.Projects | Select-Object -First 1
+            if (-not $p) { throw "Projekt nicht mehr verfuegbar (Openness-Verbindung abgebrochen?)" }
+            $script:hmiDevice = & $a.Run $p
             Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
             break
         } catch { $lastErr = $_.Exception; Write-Host ("  fehlgeschlagen: " + ($_.Exception.GetBaseException().Message -replace "\s+", " ")) -ForegroundColor DarkYellow }
