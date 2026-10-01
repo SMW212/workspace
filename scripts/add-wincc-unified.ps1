@@ -21,7 +21,9 @@ param(
     [string]$TagAddress     = "%M100.7",
     [int]$CycleMs           = 100,
     [int]$CircleDiameterPx  = 19,    # ~5 mm at 96 dpi
-    [string]$TiaVersion     = "V21"
+    [string]$TiaVersion     = "V21",
+    # Device creation variant to try (1-5). Only ONE variant runs per start: after a failed call the Openness session may be broken.
+    [int]$Variant           = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,24 +104,25 @@ Step "WinCC Unified PC Runtime hinzufuegen ($HmiName)" {
     Write-Host "Create-Methoden von Devices:"
     $project.Devices.GetType().GetMethods() | Where-Object { $_.Name -like "Create*" } | ForEach-Object { Write-Host ("  " + $_.ToString()) }
 
-    # Name rules differ for PC systems: try several variants. Never pass empty/null names (can break the Openness session).
-    # The project object is re-fetched before each attempt.
-    $attempts = @(
-        @{ Text = "CreateWithItem(type, '$HmiName', '$HmiName')";        Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, $HmiName) } },
-        @{ Text = "CreateWithItem(type, 'PC-System_1', '$HmiName')";     Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC-System_1", $HmiName) } },
-        @{ Text = "CreateWithItem(type, '$HmiName', '${HmiName}_RT')";   Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, "${HmiName}_RT") } },
-        @{ Text = "Create(type, '$HmiName')";                            Run = { param($p) $p.Devices.Create($typeId, $HmiName) } }
+    # Name rules for PC systems are unclear; only the selected variant runs (a failed call can break the Openness session).
+    $variants = @(
+        @{ Text = "CreateWithItem(type, '$HmiName', '$HmiName')";       Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, $HmiName) } },
+        @{ Text = "CreateWithItem(type, 'PC-System_1', '$HmiName')";    Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC-System_1", $HmiName) } },
+        @{ Text = "CreateWithItem(type, '$HmiName', '${HmiName}_RT')";  Run = { param($p) $p.Devices.CreateWithItem($typeId, $HmiName, "${HmiName}_RT") } },
+        @{ Text = "Create(type, '$HmiName')";                           Run = { param($p) $p.Devices.Create($typeId, $HmiName) } },
+        @{ Text = "CreateWithItem(type, 'PC1', 'PC1')";                 Run = { param($p) $p.Devices.CreateWithItem($typeId, "PC1", "PC1") } }
     )
+    if ($Variant -lt 1 -or $Variant -gt $variants.Count) { throw "-Variant muss 1..$($variants.Count) sein." }
+    $v = $variants[$Variant - 1]
     $lastErr = $null
-    foreach ($a in $attempts) {
-        try {
-            Write-Host ("Versuch: " + $a.Text)
-            $p = $tia.Projects | Select-Object -First 1
-            if (-not $p) { throw "Projekt nicht mehr verfuegbar (Openness-Verbindung abgebrochen?)" }
-            $script:hmiDevice = & $a.Run $p
-            Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
-            break
-        } catch { $lastErr = $_.Exception; Write-Host ("  fehlgeschlagen: " + ($_.Exception.GetBaseException().Message -replace "\s+", " ")) -ForegroundColor DarkYellow }
+    try {
+        Write-Host ("Variante ${Variant}: " + $v.Text)
+        $script:hmiDevice = & $v.Run $project
+        Write-Host "Geraet angelegt: $($script:hmiDevice.Name)"
+    } catch {
+        $lastErr = $_.Exception
+        Write-Host ("  fehlgeschlagen: " + ($_.Exception.GetBaseException().Message -replace "\s+", " ")) -ForegroundColor DarkYellow
+        Write-Host "Ist TIA Portal noch erreichbar? Falls nicht: TIA neu starten, Projekt oeffnen und mit -Variant $($Variant + 1) erneut starten." -ForegroundColor Yellow
     }
     if (-not $script:hmiDevice) { throw $lastErr }
 } | Out-Null
